@@ -20,6 +20,43 @@ client = None
 if api_key:
     client = genai.Client()
 
+# PCA 시각화 데이터 글로벌 캐시
+visualization_data_cache = []
+
+def precompute_pca():
+    """300개 영화의 3072차원 임베딩 벡터를 PCA를 사용하여 2차원으로 차원 축소하고 캐시합니다."""
+    global visualization_data_cache
+    if not os.path.exists(METADATA_FILE) or not os.path.exists(EMBEDDINGS_FILE):
+        print("[경고] PCA 연산을 위한 데이터베이스가 존재하지 않습니다.")
+        return
+
+    try:
+        from sklearn.decomposition import PCA
+        print("임베딩 2D 시각화 좌표(PCA) 계산을 진행합니다...")
+        
+        with open(METADATA_FILE, "r", encoding="utf-8") as f:
+            movies = json.load(f)
+        embeddings = np.load(EMBEDDINGS_FILE)
+
+        # 3072차원 -> 2차원 차원 축소
+        pca = PCA(n_components=2)
+        coords = pca.fit_transform(embeddings)
+
+        visualization_data_cache = []
+        for i, movie in enumerate(movies):
+            visualization_data_cache.append({
+                "title": movie["title"],
+                "year": movie["year"],
+                "actors": movie["actors"],
+                "synopsis": movie["synopsis"],
+                "category": movie.get("category", "korean"),
+                "x": float(coords[i, 0]),
+                "y": float(coords[i, 1])
+            })
+        print(f"PCA 차원 축소 완료 (데이터 수: {len(visualization_data_cache)}개)")
+    except Exception as e:
+        print(f"[오류] PCA 계산 중 에러 발생: {e}")
+
 class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -42,13 +79,11 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
             with open(METADATA_FILE, "r", encoding="utf-8") as f:
                 movies = json.load(f)
 
-            # 카테고리 필터링 적용
             filtered_movies = [m for m in movies if m.get("category", "korean") == category]
-
             self.send_json_response(filtered_movies)
             return
 
-        # 2. 카테고리별 고속 시맨틱 검색 API (벡터화 연산 적용)
+        # 2. 카테고리별 고속 시맨틱 검색 API
         elif path == "/api/search":
             q_list = query_params.get("q", [])
             category = query_params.get("category", ["korean"])[0]
@@ -60,7 +95,7 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
             query = q_list[0].strip()
 
             if not client:
-                self.send_error_response(500, "Gemini API 키가 백엔드에 설정되지 않았습니다.")
+                self.send_error_response(500, "Gemini API 키가 설정되지 않았습니다.")
                 return
 
             if not os.path.exists(METADATA_FILE) or not os.path.exists(EMBEDDINGS_FILE):
@@ -68,40 +103,35 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             try:
-                # 검색어 임베딩 생성 (Gemini API 호출)
                 response = client.models.embed_content(
                     model="gemini-embedding-2",
                     contents=query
                 )
                 query_vector = np.array(response.embeddings[0].values, dtype=np.float32)
 
-                # 데이터 로드
                 with open(METADATA_FILE, "r", encoding="utf-8") as f:
                     movies = json.load(f)
                 embeddings = np.load(EMBEDDINGS_FILE)
 
-                # 카테고리에 맞는 영화 인덱스 필터링
                 filtered_indices = [i for i, m in enumerate(movies) if m.get("category", "korean") == category]
                 
                 if not filtered_indices:
                     self.send_json_response([])
                     return
 
-                # 필터링된 영화 정보 및 임베딩 벡터 추출
                 category_metadata = [movies[i] for i in filtered_indices]
                 category_embeddings = embeddings[filtered_indices]
 
-                # 고속 코사인 유사도 벡터화 연산 (NumPy C-API 최적화)
+                # 고속 코사인 유사도 벡터화 연산
                 dot_products = np.dot(category_embeddings, query_vector)
                 query_norm = np.linalg.norm(query_vector)
                 movie_norms = np.linalg.norm(category_embeddings, axis=1)
 
                 norms_product = movie_norms * query_norm
-                norms_product[norms_product == 0] = 1e-9 # 0 분기 나누기 방지
+                norms_product[norms_product == 0] = 1e-9
 
                 similarities = dot_products / norms_product
 
-                # 결과 묶기 및 유사도 내림차순 정렬
                 results = []
                 for idx, sim in enumerate(similarities):
                     movie = category_metadata[idx]
@@ -116,14 +146,26 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
 
                 results.sort(key=lambda x: x["similarity"], reverse=True)
                 top_3 = results[:3]
-
                 self.send_json_response(top_3)
 
             except Exception as e:
                 self.send_error_response(500, f"검색 중 서버 오류 발생: {str(e)}")
             return
 
-        # 3. 그 외 경로는 기본 정적 파일 서빙
+        # 3. 2D 시각화 데이터 API (PCA 결과 반환)
+        elif path == "/api/visualization":
+            global visualization_data_cache
+            if not visualization_data_cache:
+                precompute_pca()
+            
+            if not visualization_data_cache:
+                self.send_error_response(500, "시각화 데이터를 연산하지 못했습니다.")
+                return
+
+            self.send_json_response(visualization_data_cache)
+            return
+
+        # 4. 그 외 정적 파일 서빙
         else:
             super().do_GET()
 
@@ -145,14 +187,21 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
 
 def main():
     if not api_key:
-        print("[경고] GEMINI_API_KEY가 로드되지 않았습니다.")
+        print("[경고] GEMINI_API_KEY가 설정되지 않았습니다.")
+
+    # 서버 시작 전에 PCA 미리 계산 시도
+    # (단, scikit-learn이 아직 설치 중인 경우 예외를 감싸서 지연 연산하도록 함)
+    try:
+        precompute_pca()
+    except Exception as e:
+        print(f"[알림] 시작 중 PCA 사전 연산 보류 (요청 시 동적 연산됨): {e}")
 
     Handler = MovieSearchAPIHandler
     socketserver.TCPServer.allow_reuse_address = True
     
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         print(f"==================================================")
-        print(f" [고성능 바이너리 벡터 모드] 웹 서버가 시작되었습니다.")
+        print(f" 영화 임베딩 시각화 지원 웹 서버가 가동되었습니다.")
         print(f" 접속 주소: http://localhost:{PORT}")
         print(f"==================================================")
         try:
