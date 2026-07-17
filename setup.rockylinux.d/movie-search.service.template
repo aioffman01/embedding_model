@@ -1,0 +1,15 @@
+[Unit]
+Description=Cinema Semantic Search Engine Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/embedding_model
+ExecStart=/opt/embedding_model/venv/bin/python web_server.py
+Restart=always
+# 본인의 실제 Gemini API 키로 대체하십시오.
+Environment="GEMINI_API_KEY=your_actual_api_key_here"
+
+[Install]
+WantedBy=multi-user.target
