@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>글로벌 영화 시맨틱 검색 엔진</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-glow"></div>
+    
+    <header class="app-header">
+        <div class="logo">
+            <span class="gradient-text">Cinema</span> semantic search
+        </div>
+        <p class="subtitle">Gemini API 임베딩 기반 카테고리별 유사도 검색 엔진</p>
+    </header>
+
+    <main class="main-container">
+        <!-- 카테고리 탭 -->
+        <section class="tabs-container">
+            <div class="category-tabs">
+                <button class="tab-btn active" data-category="korean">한국 영화</button>
+                <button class="tab-btn" data-category="foreign">해외 영화</button>
+                <button class="tab-btn" data-category="anime">일본 애니메이션</button>
+            </div>
+        </section>
+
+        <!-- 검색 영역 -->
+        <section class="search-section">
+            <form id="search-form" class="search-form">
+                <div class="search-input-wrapper">
+                    <input type="text" id="search-query" placeholder="원하는 영화의 느낌을 검색하세요..." required autocomplete="off">
+                    <button type="submit" class="search-btn" id="search-btn">
+                        <span>검색</span>
+                    </button>
+                </div>
+                <button type="button" class="reset-btn hidden" id="reset-btn">
+                    <span>전체 목록 보기</span>
+                </button>
+            </form>
+        </section>
+
+        <!-- 결과 요약 메시지 -->
+        <div class="results-summary" id="results-summary">
+            전체 영화 목록 (<span id="movie-count">0</span>)
+        </div>
+
+        <!-- 영화 카드 그리드 -->
+        <section class="movie-grid" id="movie-grid">
+            <div class="loading-spinner">데이터를 불러오는 중입니다...</div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>© 2026 Cinema Semantic Search. Powered by Gemini API & Local Cosine Similarity.</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

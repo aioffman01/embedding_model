@@ -1,0 +1,10 @@
+# API Key 및 비밀 값 제외
+.env
+
+# 파이썬 캐시 파일 및 시스템 파일 제외
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+Thumbs.db
