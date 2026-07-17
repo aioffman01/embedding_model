@@ -11,24 +11,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PORT = 8000
-EMBEDDINGS_FILE = "movies_embeddings.json"
+METADATA_FILE = "movies_metadata.json"
+EMBEDDINGS_FILE = "movies_embeddings.npy"
 
 # Gemini 클라이언트 초기화
 api_key = os.getenv("GEMINI_API_KEY")
 client = None
 if api_key:
     client = genai.Client()
-
-def cosine_similarity(v1, v2):
-    """두 벡터 간의 코사인 유사도를 계산합니다."""
-    a = np.array(v1)
-    b = np.array(v2)
-    dot_product = np.dot(a, b)
-    norm_a = np.linalg.norm(a)
-    norm_b = np.linalg.norm(b)
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return float(dot_product / (norm_a * norm_b))
 
 class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -45,30 +35,20 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/movies":
             category = query_params.get("category", ["korean"])[0]
             
-            if not os.path.exists(EMBEDDINGS_FILE):
+            if not os.path.exists(METADATA_FILE):
                 self.send_error_response(404, "영화 데이터베이스가 아직 생성되지 않았습니다.")
                 return
 
-            with open(EMBEDDINGS_FILE, "r", encoding="utf-8") as f:
+            with open(METADATA_FILE, "r", encoding="utf-8") as f:
                 movies = json.load(f)
 
-            # 카테고리 필터링 적용 (기본값 korean)
+            # 카테고리 필터링 적용
             filtered_movies = [m for m in movies if m.get("category", "korean") == category]
 
-            movies_summary = []
-            for movie in filtered_movies:
-                movies_summary.append({
-                    "title": movie["title"],
-                    "year": movie["year"],
-                    "actors": movie["actors"],
-                    "synopsis": movie["synopsis"],
-                    "category": movie.get("category", "korean")
-                })
-
-            self.send_json_response(movies_summary)
+            self.send_json_response(filtered_movies)
             return
 
-        # 2. 카테고리별 시맨틱 검색 API
+        # 2. 카테고리별 고속 시맨틱 검색 API (벡터화 연산 적용)
         elif path == "/api/search":
             q_list = query_params.get("q", [])
             category = query_params.get("category", ["korean"])[0]
@@ -83,7 +63,7 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error_response(500, "Gemini API 키가 백엔드에 설정되지 않았습니다.")
                 return
 
-            if not os.path.exists(EMBEDDINGS_FILE):
+            if not os.path.exists(METADATA_FILE) or not os.path.exists(EMBEDDINGS_FILE):
                 self.send_error_response(404, "영화 데이터베이스가 아직 생성되지 않았습니다.")
                 return
 
@@ -93,28 +73,47 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
                     model="gemini-embedding-2",
                     contents=query
                 )
-                query_vector = response.embeddings[0].values
+                query_vector = np.array(response.embeddings[0].values, dtype=np.float32)
 
-                # 로컬 코사인 유사도 계산
-                with open(EMBEDDINGS_FILE, "r", encoding="utf-8") as f:
+                # 데이터 로드
+                with open(METADATA_FILE, "r", encoding="utf-8") as f:
                     movies = json.load(f)
+                embeddings = np.load(EMBEDDINGS_FILE)
 
-                # 선택된 카테고리에 속하는 영화들만 필터링하여 유사도 계산
-                filtered_movies = [m for m in movies if m.get("category", "korean") == category]
+                # 카테고리에 맞는 영화 인덱스 필터링
+                filtered_indices = [i for i, m in enumerate(movies) if m.get("category", "korean") == category]
+                
+                if not filtered_indices:
+                    self.send_json_response([])
+                    return
 
+                # 필터링된 영화 정보 및 임베딩 벡터 추출
+                category_metadata = [movies[i] for i in filtered_indices]
+                category_embeddings = embeddings[filtered_indices]
+
+                # 고속 코사인 유사도 벡터화 연산 (NumPy C-API 최적화)
+                dot_products = np.dot(category_embeddings, query_vector)
+                query_norm = np.linalg.norm(query_vector)
+                movie_norms = np.linalg.norm(category_embeddings, axis=1)
+
+                norms_product = movie_norms * query_norm
+                norms_product[norms_product == 0] = 1e-9 # 0 분기 나누기 방지
+
+                similarities = dot_products / norms_product
+
+                # 결과 묶기 및 유사도 내림차순 정렬
                 results = []
-                for movie in filtered_movies:
-                    similarity = cosine_similarity(query_vector, movie["embedding"])
+                for idx, sim in enumerate(similarities):
+                    movie = category_metadata[idx]
                     results.append({
                         "title": movie["title"],
                         "year": movie["year"],
                         "actors": movie["actors"],
                         "synopsis": movie["synopsis"],
                         "category": movie.get("category", "korean"),
-                        "similarity": similarity
+                        "similarity": float(sim)
                     })
 
-                # 유사도 기준 내림차순 정렬 및 상위 3개 추출
                 results.sort(key=lambda x: x["similarity"], reverse=True)
                 top_3 = results[:3]
 
@@ -146,14 +145,14 @@ class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
 
 def main():
     if not api_key:
-        print("[경고] GEMINI_API_KEY가 로드되지 않았습니다. 시맨틱 검색 API가 오동작할 수 있습니다.")
+        print("[경고] GEMINI_API_KEY가 로드되지 않았습니다.")
 
     Handler = MovieSearchAPIHandler
     socketserver.TCPServer.allow_reuse_address = True
     
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         print(f"==================================================")
-        print(f" 카테고리 지원 영화 검색 웹 서버가 가동되었습니다.")
+        print(f" [고성능 바이너리 벡터 모드] 웹 서버가 시작되었습니다.")
         print(f" 접속 주소: http://localhost:{PORT}")
         print(f"==================================================")
         try:
