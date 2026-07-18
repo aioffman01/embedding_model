@@ -7,12 +7,15 @@ import numpy as np
 from google import genai
 from dotenv import load_dotenv
 
-# .env 로드
-load_dotenv()
+# 스크립트 디렉토리 획득
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# .env 로드 (절대 경로)
+load_dotenv(os.path.join(SCRIPT_DIR, ".env"))
 
 PORT = 8000
-METADATA_FILE = "movies_metadata.json"
-EMBEDDINGS_FILE = "movies_embeddings.npy"
+METADATA_FILE = os.path.join(SCRIPT_DIR, "movies_metadata.json")
+EMBEDDINGS_FILE = os.path.join(SCRIPT_DIR, "movies_embeddings.npy")
 
 # Gemini 클라이언트 초기화
 api_key = os.getenv("GEMINI_API_KEY")
@@ -75,6 +78,12 @@ def precompute_pca():
         print(f"[오류] 코사인 기반 PCA 계산 중 에러 발생: {e}")
 
 class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        # backend 폴더의 상위 폴더(..) 하위의 frontend 폴더를 정적 파일 루트로 지정
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        frontend_dir = os.path.abspath(os.path.join(script_dir, "..", "frontend"))
+        super().__init__(*args, directory=frontend_dir, **kwargs)
+
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')

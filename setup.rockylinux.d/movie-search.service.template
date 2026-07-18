@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/embedding_model
+WorkingDirectory=/opt/embedding_model/backend
 ExecStart=/opt/embedding_model/venv/bin/python web_server.py
 Restart=always
 # 본인의 실제 Gemini API 키로 대체하십시오.

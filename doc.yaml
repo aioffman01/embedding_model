@@ -1,0 +1,170 @@
+openapi: 3.0.3
+info:
+  title: 영화 시맨틱 검색 및 시각화 분석 API 명세서
+  description: |
+    이 명세서는 Gemini API 임베딩과 로컬 코사인 유사도 행렬 연산을 활용하는 영화 검색 웹 서비스가 제공하는 경량 REST API의 명세서입니다.
+    
+    모든 API 응답은 UTF-8 인코딩을 적용한 JSON 포맷을 사용합니다.
+  version: 1.2.0
+servers:
+  - url: http://localhost:8000
+    description: 로컬 개발 서버
+paths:
+  /api/movies:
+    get:
+      summary: 카테고리별 영화 전체 목록 조회
+      description: 지정된 카테고리에 속하는 모든 영화의 메타데이터(벡터 필드 제외)를 리턴합니다.
+      parameters:
+        - name: category
+          in: query
+          description: 조회할 영화 카테고리
+          required: false
+          schema:
+            type: string
+            enum: [korean, foreign, anime]
+            default: korean
+      responses:
+        '200':
+          description: 성공적인 조회 결과 (100개 영화 객체 배열)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Movie'
+        '404':
+          description: 영화 데이터베이스 파일을 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 서버 내부 연산 오류
+
+  /api/search:
+    get:
+      summary: 의미 기반(시맨틱) 영화 검색
+      description: 사용자 자연어 입력 검색어를 Gemini API로 임베딩한 후, 로컬에서 해당 카테고리 영화 벡터들과 고속 코사인 유사도를 계산하여 가장 일치도가 높은 상위 3개 영화를 추천합니다.
+      parameters:
+        - name: q
+          in: query
+          description: 사용자가 입력한 자연어 의미 검색어 (예시 - "눈물 나는 슬픈 영화", "송강호 나오는 스릴러")
+          required: true
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: 검색을 수행할 격리된 영화 카테고리
+          required: false
+          schema:
+            type: string
+            enum: [korean, foreign, anime]
+            default: korean
+      responses:
+        '200':
+          description: 유사도 기반 상위 3개 매칭 결과 영화 배열
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchResultMovie'
+        '400':
+          description: 유효하지 않은 검색어 파라미터 (공백 등)
+        '404':
+          description: 영화 데이터베이스 파일을 찾을 수 없음
+        '500':
+          description: Gemini API 연동 실패 또는 코사인 연산 중 장애 발생
+
+  /api/visualization:
+    get:
+      summary: 2D 차원 축소 시각화용 데이터셋 조회
+      description: 300개 영화의 3072차원 임베딩 벡터를 L2 정규화 처리한 뒤, 주성분 분석(PCA) 알고리즘으로 카테고리별로 개별 축소한 2D 공간 좌표(X, Y) 세트를 일괄 반환합니다.
+      responses:
+        '200':
+          description: 300개 영화 전체의 2D 매핑 데이터 배열
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VisualizationMovie'
+        '500':
+          description: PCA 수학 연산 또는 데이터 처리 실패
+
+components:
+  schemas:
+    Movie:
+      type: OBJECT
+      required:
+        - title
+        - year
+        - actors
+        - synopsis
+        - category
+      properties:
+        title:
+          type: string
+          description: 영화 제목
+          example: 기생충
+        year:
+          type: integer
+          description: 개봉 및 출시 연도
+          example: 2019
+        actors:
+          type: array
+          items:
+            type: string
+          description: 주요 출연 배우 또는 감독/성우 목록
+          example: ["송강호", "이선균", "조여정"]
+        synopsis:
+          type: string
+          description: 영화의 줄거리 요약
+          example: 전원백수로 살아가던 기택 일가가 IT기업 사장 동익의 저택으로 들어가기 시작하면서 벌어지는 걷잡을 수 없는 사건을 다룬 스릴러 및 블랙코미디 영화.
+        category:
+          type: string
+          enum: [korean, foreign, anime]
+          description: 영화 소속 카테고리
+          example: korean
+
+    SearchResultMovie:
+      allOf:
+        - $ref: '#/components/schemas/Movie'
+        - type: OBJECT
+          required:
+            - similarity
+          properties:
+            similarity:
+              type: number
+              format: float
+              description: 검색어와 영화 임베딩 간의 코사인 유사도 값 (0 ~ 1 사이로 정규화)
+              example: 0.8257
+
+    VisualizationMovie:
+      allOf:
+        - $ref: '#/components/schemas/Movie'
+        - type: OBJECT
+          required:
+            - x
+            - y
+          properties:
+            x:
+              type: number
+              format: float
+              description: 주성분 분석(PCA)으로 축소된 2D 평면상의 X 좌표
+              example: -0.4578
+            y:
+              type: number
+              format: float
+              description: 주성분 분석(PCA)으로 축소된 2D 평면상의 Y 좌표
+              example: 0.1245
+
+    ErrorResponse:
+      type: OBJECT
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: 에러 발생 사유 원인 설명 메시지
+          example: 영화 데이터베이스가 아직 생성되지 않았습니다.

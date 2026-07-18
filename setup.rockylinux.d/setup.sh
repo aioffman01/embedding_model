@@ -56,8 +56,8 @@ SERVICE_FILE="/etc/systemd/system/movie-search.service"
 
 # .env 파일에서 API 키 추출 시도
 API_KEY=""
-if [ -f ".env" ]; then
-    API_KEY=$(grep GEMINI_API_KEY .env | cut -d '=' -f2)
+if [ -f "backend/.env" ]; then
+    API_KEY=$(grep GEMINI_API_KEY backend/.env | cut -d '=' -f2)
 fi
 
 # 서비스 파일 덮어쓰기
@@ -69,7 +69,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=$PROJECT_DIR
+WorkingDirectory=$PROJECT_DIR/backend
 ExecStart=$PROJECT_DIR/venv/bin/python web_server.py
 Restart=always
 Environment="GEMINI_API_KEY=${API_KEY}"
@@ -82,7 +82,7 @@ systemctl daemon-reload
 
 echo -e "${GREEN}Systemd 서비스 파일 생성 완료: $SERVICE_FILE${NC}"
 if [ -z "$API_KEY" ]; then
-    echo -e "${RED}[주의] .env 파일에서 GEMINI_API_KEY를 찾지 못했습니다.${NC}"
+    echo -e "${RED}[주의] backend/.env 파일에서 GEMINI_API_KEY를 찾지 못했습니다.${NC}"
     echo -e "${RED}생성된 서비스 파일($SERVICE_FILE) 내에 API 키를 수동으로 지정한 뒤 구동해주세요.${NC}"
 fi
 
