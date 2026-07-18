@@ -24,7 +24,8 @@ if api_key:
 visualization_data_cache = []
 
 def precompute_pca():
-    """300개 영화의 3072차원 임베딩 벡터를 PCA를 사용하여 2차원으로 차원 축소하고 캐시합니다."""
+    """각 카테고리별로 영화 임베딩을 분리하여 개별적으로 PCA(차원 축소)를 수행하고 캐시합니다.
+    이를 통해 각 카테고리별 차트가 개별 공간을 꽉 채우도록 시각화 품질을 극대화합니다."""
     global visualization_data_cache
     if not os.path.exists(METADATA_FILE) or not os.path.exists(EMBEDDINGS_FILE):
         print("[경고] PCA 연산을 위한 데이터베이스가 존재하지 않습니다.")
@@ -32,30 +33,42 @@ def precompute_pca():
 
     try:
         from sklearn.decomposition import PCA
-        print("임베딩 2D 시각화 좌표(PCA) 계산을 진행합니다...")
+        print("카테고리별 개별 PCA 차원 축소 연산을 시작합니다...")
         
         with open(METADATA_FILE, "r", encoding="utf-8") as f:
             movies = json.load(f)
         embeddings = np.load(EMBEDDINGS_FILE)
 
-        # 3072차원 -> 2차원 차원 축소
-        pca = PCA(n_components=2)
-        coords = pca.fit_transform(embeddings)
-
         visualization_data_cache = []
-        for i, movie in enumerate(movies):
-            visualization_data_cache.append({
-                "title": movie["title"],
-                "year": movie["year"],
-                "actors": movie["actors"],
-                "synopsis": movie["synopsis"],
-                "category": movie.get("category", "korean"),
-                "x": float(coords[i, 0]),
-                "y": float(coords[i, 1])
-            })
-        print(f"PCA 차원 축소 완료 (데이터 수: {len(visualization_data_cache)}개)")
+        categories = ["korean", "foreign", "anime"]
+
+        for cat in categories:
+            # 해당 카테고리의 영화 인덱스 추출
+            indices = [i for i, m in enumerate(movies) if m.get("category", "korean") == cat]
+            if not indices:
+                continue
+
+            cat_embeddings = embeddings[indices]
+            
+            # 카테고리별 독립적인 2차원 차원 축소 수행
+            pca = PCA(n_components=2)
+            coords = pca.fit_transform(cat_embeddings)
+
+            for idx, original_idx in enumerate(indices):
+                movie = movies[original_idx]
+                visualization_data_cache.append({
+                    "title": movie["title"],
+                    "year": movie["year"],
+                    "actors": movie["actors"],
+                    "synopsis": movie["synopsis"],
+                    "category": cat,
+                    "x": float(coords[idx, 0]),
+                    "y": float(coords[idx, 1])
+                })
+        
+        print(f"카테고리별 개별 PCA 연산 완료 (총 {len(visualization_data_cache)}개 영화 캐싱됨)")
     except Exception as e:
-        print(f"[오류] PCA 계산 중 에러 발생: {e}")
+        print(f"[오류] 카테고리별 PCA 계산 중 에러 발생: {e}")
 
 class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -189,8 +202,6 @@ def main():
     if not api_key:
         print("[경고] GEMINI_API_KEY가 설정되지 않았습니다.")
 
-    # 서버 시작 전에 PCA 미리 계산 시도
-    # (단, scikit-learn이 아직 설치 중인 경우 예외를 감싸서 지연 연산하도록 함)
     try:
         precompute_pca()
     except Exception as e:

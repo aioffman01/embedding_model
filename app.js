@@ -14,7 +14,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const vizView = document.getElementById("viz-view");
 
     let currentCategory = "korean"; // 기본값: 한국 영화
-    let chartInstance = null;
+    
+    // 3개 개별 차트 인스턴스 관리 객체
+    let chartInstances = {
+        korean: null,
+        foreign: null,
+        anime: null
+    };
 
     const categoryLabels = {
         "korean": "한국 영화",
@@ -137,7 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ==========================================
-    // 3. Chart.js 시각화 2D 렌더링
+    // 3. Chart.js 시각화 2D 렌더링 (3개 분리 차트)
     // ==========================================
     function loadChartJS() {
         return new Promise((resolve, reject) => {
@@ -153,9 +159,94 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // 차트 생성 헬퍼 함수
+    function createScatterChart(canvasId, label, data, color) {
+        const ctx = document.getElementById(canvasId).getContext("2d");
+        return new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: label,
+                    data: data,
+                    backgroundColor: color,
+                    borderColor: "transparent",
+                    pointRadius: 6,
+                    pointHoverRadius: 9,
+                    pointHoverBackgroundColor: "#ffffff",
+                    pointHoverBorderColor: color,
+                    pointHoverBorderWidth: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false // 카드 타이틀이 있으므로 범례는 숨김
+                    },
+                    tooltip: {
+                        backgroundColor: "rgba(15, 17, 26, 0.95)",
+                        titleColor: "#ffffff",
+                        titleFont: {
+                            family: "'Outfit', sans-serif",
+                            size: 15,
+                            weight: 700
+                        },
+                        bodyColor: "#d1d5db",
+                        bodyFont: {
+                            family: "'Inter', sans-serif",
+                            size: 12
+                        },
+                        borderColor: "rgba(255,255,255,0.1)",
+                        borderWidth: 1,
+                        padding: 15,
+                        cornerRadius: 12,
+                        displayColors: false,
+                        callbacks: {
+                            title: function(context) {
+                                const point = context[0].raw;
+                                return `${point.title} (${point.year}년)`;
+                            },
+                            label: function(context) {
+                                const point = context.raw;
+                                const actors = point.actors.slice(0, 3).join(", ");
+                                const truncatedSynopsis = point.synopsis.length > 80 
+                                    ? point.synopsis.substring(0, 80) + "..." 
+                                    : point.synopsis;
+
+                                return [
+                                    `출연/감독: ${actors}`,
+                                    "",
+                                    "줄거리 요약:",
+                                    truncatedSynopsis
+                                ];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: "rgba(255,255,255,0.03)"
+                        },
+                        ticks: {
+                            color: "rgba(255,255,255,0.2)"
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: "rgba(255,255,255,0.03)"
+                        },
+                        ticks: {
+                            color: "rgba(255,255,255,0.2)"
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     async function initVisualization() {
-        const ctx = document.getElementById("similarity-chart").getContext("2d");
-        
         try {
             await loadChartJS();
             
@@ -167,131 +258,46 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             const rawData = await response.json();
 
-            // 카테고리별 데이터셋으로 분류
-            const datasets = {
-                korean: { label: "한국 영화", data: [], color: "#ec4899" }, // 네온 핑크
-                foreign: { label: "해외 영화", data: [], color: "#6366f1" }, // 네온 블루
-                anime: { label: "일본 애니메이션", data: [], color: "#10b981" } // 네온 그린
-            };
+            // 카테고리별 데이터 분류 버킷 생성
+            const koreanData = [];
+            const foreignData = [];
+            const animeData = [];
 
             rawData.forEach(item => {
-                const cat = item.category || "korean";
-                if (datasets[cat]) {
-                    datasets[cat].data.push({
-                        x: item.x,
-                        y: item.y,
-                        // 마우스 호버용 영화 메타데이터
-                        title: item.title,
-                        year: item.year,
-                        actors: item.actors,
-                        synopsis: item.synopsis
-                    });
+                const point = {
+                    x: item.x,
+                    y: item.y,
+                    title: item.title,
+                    year: item.year,
+                    actors: item.actors,
+                    synopsis: item.synopsis
+                };
+
+                if (item.category === "korean") {
+                    koreanData.push(point);
+                } else if (item.category === "foreign") {
+                    foreignData.push(point);
+                } else if (item.category === "anime") {
+                    animeData.push(point);
                 }
             });
 
-            // 차트 인스턴스 초기화 (기존 차트 해제)
-            if (chartInstance) {
-                chartInstance.destroy();
-            }
-
-            // Chart.js 2D 산점도 그리기
-            chartInstance = new Chart(ctx, {
-                type: 'scatter',
-                data: {
-                    datasets: Object.keys(datasets).map(key => {
-                        return {
-                            label: datasets[key].label,
-                            data: datasets[key].data,
-                            backgroundColor: datasets[key].color,
-                            borderColor: "transparent",
-                            pointRadius: 6,
-                            pointHoverRadius: 9,
-                            pointHoverBackgroundColor: "#ffffff",
-                            pointHoverBorderColor: datasets[key].color,
-                            pointHoverBorderWidth: 3
-                        };
-                    })
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            labels: {
-                                color: "#f3f4f6", // 다크 모드용 흰색 범례 글씨
-                                font: {
-                                    family: "'Outfit', sans-serif",
-                                    size: 14,
-                                    weight: 600
-                                },
-                                padding: 20
-                            }
-                        },
-                        tooltip: {
-                            backgroundColor: "rgba(15, 17, 26, 0.95)",
-                            titleColor: "#ffffff",
-                            titleFont: {
-                                family: "'Outfit', sans-serif",
-                                size: 15,
-                                weight: 700
-                            },
-                            bodyColor: "#d1d5db",
-                            bodyFont: {
-                                family: "'Inter', sans-serif",
-                                size: 12
-                            },
-                            borderColor: "rgba(255,255,255,0.1)",
-                            borderWidth: 1,
-                            padding: 15,
-                            cornerRadius: 12,
-                            displayColors: false,
-                            callbacks: {
-                                title: function(context) {
-                                    const point = context[0].raw;
-                                    return `${point.title} (${point.year}년)`;
-                                },
-                                label: function(context) {
-                                    const point = context.raw;
-                                    const actors = point.actors.slice(0, 3).join(", ");
-                                    const truncatedSynopsis = point.synopsis.length > 80 
-                                        ? point.synopsis.substring(0, 80) + "..." 
-                                        : point.synopsis;
-
-                                    return [
-                                        `출연/감독: ${actors}`,
-                                        "",
-                                        "줄거리 요약:",
-                                        truncatedSynopsis
-                                    ];
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: {
-                                color: "rgba(255,255,255,0.03)"
-                            },
-                            ticks: {
-                                color: "rgba(255,255,255,0.2)"
-                            }
-                        },
-                        y: {
-                            grid: {
-                                color: "rgba(255,255,255,0.03)"
-                            },
-                            ticks: {
-                                color: "rgba(255,255,255,0.2)"
-                            }
-                        }
-                    }
+            // 기존 차트 인스턴스 전면 제거
+            Object.keys(chartInstances).forEach(key => {
+                if (chartInstances[key]) {
+                    chartInstances[key].destroy();
+                    chartInstances[key] = null;
                 }
             });
+
+            // 3개의 독립된 2D 산점도 개별 생성
+            chartInstances.korean = createScatterChart("korean-chart", "한국 영화", koreanData, "#ec4899");
+            chartInstances.foreign = createScatterChart("foreign-chart", "해외 영화", foreignData, "#6366f1");
+            chartInstances.anime = createScatterChart("anime-chart", "일본 애니메이션", animeData, "#10b981");
 
         } catch (error) {
             console.error("차트 생성 중 오류:", error);
-            document.getElementById("similarity-chart").parentElement.innerHTML = 
-                `<div class="error-message" style="margin-top: 5rem;">시각화 분석 차트를 불러오지 못했습니다: ${error.message}</div>`;
+            movieGrid.innerHTML = `<div class="error-message">차트를 로드하는 중 에러가 발생했습니다: ${error.message}</div>`;
         }
     }
 

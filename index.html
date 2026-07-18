@@ -68,12 +68,34 @@
         <!-- 2. 시각화 분석 뷰 패널 -->
         <div id="viz-view" class="view-panel hidden">
             <div class="viz-header">
-                <h2 class="view-title">3D 임베딩 유사성 2D 공간 지도</h2>
-                <p class="view-desc">300개 영화의 3,072차원 의미 벡터를 PCA(주성분 분석)를 활용해 2차원 평면으로 투영한 분포도입니다. 가까운 위치에 있을수록 스토리가 유사함을 의미합니다.</p>
+                <h2 class="view-title">임베딩 유사성 공간 지도</h2>
+                <p class="view-desc">각 카테고리별 100개 영화의 3,072차원 의미 임베딩을 PCA(주성분 분석)를 통해 2D 공간에 투영한 개별 분포도입니다. 가까운 위치의 점들일수록 스토리가 유사함을 뜻합니다.</p>
             </div>
             
-            <div class="chart-wrapper">
-                <canvas id="similarity-chart"></canvas>
+            <div class="charts-container">
+                <!-- 한국 영화 차트 -->
+                <div class="chart-card">
+                    <h3 class="chart-card-title"><span class="glow-dot pink"></span>한국 영화 유사도 지도 (100)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="korean-chart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- 해외 영화 차트 -->
+                <div class="chart-card">
+                    <h3 class="chart-card-title"><span class="glow-dot blue"></span>해외 영화 유사도 지도 (100)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="foreign-chart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- 일본 애니메이션 차트 -->
+                <div class="chart-card">
+                    <h3 class="chart-card-title"><span class="glow-dot green"></span>일본 애니메이션 유사도 지도 (100)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="anime-chart"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
 
