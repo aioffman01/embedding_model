@@ -24,8 +24,8 @@ if api_key:
 visualization_data_cache = []
 
 def precompute_pca():
-    """각 카테고리별로 영화 임베딩을 분리하여 개별적으로 PCA(차원 축소)를 수행하고 캐시합니다.
-    이를 통해 각 카테고리별 차트가 개별 공간을 꽉 채우도록 시각화 품질을 극대화합니다."""
+    """각 카테고리별로 영화 임베딩을 분리하고, 코사인 유사도(각도 기반)를 보존하기 위해 
+    L2 정규화(Normalization)를 수행한 후 PCA(차원 축소)를 적용합니다."""
     global visualization_data_cache
     if not os.path.exists(METADATA_FILE) or not os.path.exists(EMBEDDINGS_FILE):
         print("[경고] PCA 연산을 위한 데이터베이스가 존재하지 않습니다.")
@@ -33,7 +33,7 @@ def precompute_pca():
 
     try:
         from sklearn.decomposition import PCA
-        print("카테고리별 개별 PCA 차원 축소 연산을 시작합니다...")
+        print("코사인 기반 L2 정규화 및 PCA 차원 축소 연산을 시작합니다...")
         
         with open(METADATA_FILE, "r", encoding="utf-8") as f:
             movies = json.load(f)
@@ -43,16 +43,20 @@ def precompute_pca():
         categories = ["korean", "foreign", "anime"]
 
         for cat in categories:
-            # 해당 카테고리의 영화 인덱스 추출
             indices = [i for i, m in enumerate(movies) if m.get("category", "korean") == cat]
             if not indices:
                 continue
 
             cat_embeddings = embeddings[indices]
             
-            # 카테고리별 독립적인 2차원 차원 축소 수행
+            # [핵심] L2 정규화를 거쳐 벡터의 길이를 1로 고정 (코사인 거리 = 유클리드 거리 공식 성립)
+            norms = np.linalg.norm(cat_embeddings, axis=1, keepdims=True)
+            norms[norms == 0] = 1e-9
+            normalized_embeddings = cat_embeddings / norms
+            
+            # 정규화된 상태에서 PCA 투영 진행
             pca = PCA(n_components=2)
-            coords = pca.fit_transform(cat_embeddings)
+            coords = pca.fit_transform(normalized_embeddings)
 
             for idx, original_idx in enumerate(indices):
                 movie = movies[original_idx]
@@ -66,9 +70,9 @@ def precompute_pca():
                     "y": float(coords[idx, 1])
                 })
         
-        print(f"카테고리별 개별 PCA 연산 완료 (총 {len(visualization_data_cache)}개 영화 캐싱됨)")
+        print(f"코사인 기반 PCA 연산 완료 (총 {len(visualization_data_cache)}개 영화 캐싱됨)")
     except Exception as e:
-        print(f"[오류] 카테고리별 PCA 계산 중 에러 발생: {e}")
+        print(f"[오류] 코사인 기반 PCA 계산 중 에러 발생: {e}")
 
 class MovieSearchAPIHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -205,14 +209,14 @@ def main():
     try:
         precompute_pca()
     except Exception as e:
-        print(f"[알림] 시작 중 PCA 사전 연산 보류 (요청 시 동적 연산됨): {e}")
+        print(f"[알림] 시작 중 PCA 사전 연산 보류: {e}")
 
     Handler = MovieSearchAPIHandler
     socketserver.TCPServer.allow_reuse_address = True
     
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         print(f"==================================================")
-        print(f" 영화 임베딩 시각화 지원 웹 서버가 가동되었습니다.")
+        print(f" [코사인 기반 시각화 연동] 웹 서버가 가동되었습니다.")
         print(f" 접속 주소: http://localhost:{PORT}")
         print(f"==================================================")
         try:
